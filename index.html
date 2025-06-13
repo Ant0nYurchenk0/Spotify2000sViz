@@ -195,9 +195,9 @@
 
             const simulation = d3.forceSimulation(circles)
                 .force("x", d3.forceX(xCenter).strength(1))
-                .force("y", d3.forceY(d => yPos(d.count)).strength(2))
+                .force("y", d3.forceY(d => yPos(d.count)).strength(3))
                 .force("collide", d3.forceCollide(d => d.radius + 7))
-                .alphaDecay(0.08)
+                .alphaDecay(0.09)
                 .alpha(1)
                 .stop();
 
