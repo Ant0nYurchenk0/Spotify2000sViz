@@ -24,15 +24,12 @@
             z-index: 0;
             display: block;
             pointer-events: auto;
-            /* so D3 interactivity works */
         }
 
-        /* Any other page content should have z-index: 1+ */
-        #content {
+        #vis-container {
             position: relative;
             z-index: 1;
             color: #fff;
-            /* Optionally add padding etc */
         }
     </style>
 </head>
@@ -41,209 +38,97 @@
     <div id="vis-container"></div>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
-        const features = [
-            { name: "Beats Per Minute (BPM)", min: 50, max: 200 },
-            { name: "Energy", min: 0, max: 100 },
-            { name: "Danceability", min: 0, max: 100 },
-            { name: "Loudness (dB)", min: -20, max: 0 },
-            { name: "Valence", min: 0, max: 100 }
-        ];
         // --- CONFIGURATION ---
-        // Feature config for radar petals
-        function genreCircle(genre, x = 0, y = 0) {
-            // Feature/radar prep
+        const FEATURES = [
+            { name: "Valence", min: 0, max: 100 },
+            { name: "Energy", min: 0, max: 105 },
+            { name: "Beats Per Minute (BPM)", min: 30, max: 210 },
+            { name: "Danceability", min: 10, max: 100 },
+            { name: "Loudness (dB)", min: -28, max: 0 },
+        ];
+        const WIDTH = window.innerWidth, HEIGHT = window.innerHeight;
+        const MARGIN = { top: 250, right: 500, bottom: 140, left: 0 };
+        const NEON = "#00ffff";
+        const LEGEND_RADIUS = 90;
 
-
-            const means = featureMeansByGenre[genre];
-            if (!means) return null;
-
-            // For matching with main chart
-            const allTotals = Object.values(allGenreCounts);
-            const bubbleR = d3.scaleSqrt()
-                .domain([0, d3.max(allTotals)])
-                .range([20, 200]);
-            const radius = bubbleR(allGenreCounts[genre] ?? 0);
-
-            // Petal radius: e.g. 1.05 * circle
-            const petalRadius = radius * 1.05;
-
-            // Radar points (centered at 0,0 for group translation)
-            const num = features.length;
-            const angle = 2 * Math.PI / num;
-            const normalized = features.map(f => {
-                const v = means[f.name];
-                return (v - f.min) / (f.max - f.min);
-            });
-            const mainPoints = normalized.map((norm, i) => {
-                const len = norm * petalRadius;
-                const theta = i * angle - Math.PI / 2;
-                return [
-                    Math.cos(theta) * len,
-                    Math.sin(theta) * len
-                ];
-            });
-            const points = [];
-            for (let i = 0; i < num; i++) {
-                const a = mainPoints[i];
-                const b = mainPoints[(i + 1) % num];
-                const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-                const cx = 0, cy = 0;
-                const dx = mx - cx, dy = my - cy;
-                const exaggeration = 0.8;
-                const ex = cx + dx * exaggeration;
-                const ey = cy + dy * exaggeration;
-                points.push(a, [ex, ey]);
-            }
-            const line = d3.line().curve(d3.curveCardinalClosed.tension(-1));
-            const petalPath = line(points);
-
-            // Return the "circle" object
-            return {
-                genre,
-                x, y,
-                radius,
-                petalPath,
-                petalRadius,
-                count: top100Counts[genre] ?? 0,
-                total: allGenreCounts[genre] ?? 0
-            };
+        // --- DATA PROCESSING HELPERS ---
+        function groupBy(arr, fn) {
+            return arr.reduce((acc, x) => {
+                const key = fn(x);
+                (acc[key] = acc[key] || []).push(x);
+                return acc;
+            }, {});
         }
 
-        // --- Load CSV ---
-        d3.csv("Spotify-2000-updated.csv").then(function (data) {
-            // --- 1. Group data by genre and compute required stats ---
-            allGenres = Array.from(new Set(data.map(d => d["Broad Genre"]))).filter(Boolean);
-            top100Counts = (() => {
-                // Copy and sort so original isn't mutated
-                const arr = [...data];
-                arr.sort((a, b) => b.Popularity - a.Popularity);
-                const top100 = arr.slice(0, 100);
+        function genreStats(data, featureNames, genreKey = "Broad Genre") {
+            const grouped = d3.group(data, d => d[genreKey]);
+            const allGenres = Array.from(grouped.keys()).filter(Boolean);
+            // Count of all records per genre
+            const allCounts = {};
+            for (const genre of allGenres)
+                allCounts[genre] = grouped.get(genre).length;
+            // Count of top 100 per genre
+            const top100 = [...data].sort((a, b) => b.Popularity - a.Popularity).slice(0, 100);
+            const top100Counts = {};
+            for (const g of allGenres) top100Counts[g] = 0;
+            for (const d of top100) if (top100Counts.hasOwnProperty(d[genreKey])) top100Counts[d[genreKey]]++;
+            // Mean (could swap with quantiles or mode+interval)
+            const featureMeans = {};
+            for (const genre of allGenres) {
+                featureMeans[genre] = {};
+                for (const feat of featureNames) {
+                    let vals = grouped.get(genre)
+                        .map(d => +d[feat])
+                        .filter(v => !isNaN(v));
+                    if (feat !== "Loudness (dB)") {
 
-                // Count genres in top 100
-                const temp = top100.reduce((acc, d) => {
-                    const genre = d["Broad Genre"];
-                    acc[genre] = (acc[genre] ?? 0) + 1;
-                    return acc;
-                }, {});
-
-                // Fill in missing genres with 0
-                const result = {};
-                for (const genre of allGenres) result[genre] = temp[genre] ?? 0;
-                return result;
-            })();
-            allGenreCounts = (() => {
-                const counts = {};
-                for (const d of data) {
-                    const genre = d["Broad Genre"];
-                    counts[genre] = (counts[genre] ?? 0) + 1;
-                }
-                return counts;
-            })();
-            featureMeansByGenre = (() => {
-                const features = [
-                    "Beats Per Minute (BPM)",
-                    "Energy",
-                    "Danceability",
-                    "Loudness (dB)",
-                    "Valence"
-                ];
-                // Group songs by genre
-                const grouped = d3.group(data, d => d["Broad Genre"]);
-                const result = {};
-                for (const [genre, songs] of grouped) {
-                    result[genre] = {};
-                    for (const feat of features) {
-                        // Ignore NaN and parse as float
-                        const vals = songs.map(d => +d[feat]).filter(v => !isNaN(v));
-                        result[genre][feat] = vals.length ? d3.mean(vals) : 0;
+                        vals = vals.map(v => Math.round(v / 5) * 5)
                     }
+                    const res = d3.mode(vals)
+                    const f = FEATURES.find(f => f.name === feat);
+                    featureMeans[genre][feat] = (res - f.min) / (f.max - f.min);
                 }
-                return result;
-            })();
-
-            // Assume your dataset has columns: Genre, "Top100" flag, and feature columns
-
-            // Precompute genre mapping (if needed, adapt as required)
-            // Here, we assume there's a mapped genre column called "Genre" in your data
-
-            // Count and sum features
-            circles = Object.keys(allGenreCounts)
-                .map(g => genreCircle(g))
-                .filter(Boolean);
-
-            // Process dataset
-            const width = window.innerWidth, height = window.innerHeight;
-            const margin = { top: 250, right: 500, bottom: 140, left: 0 };
-            const xCenter = width - margin.right;
-
-            // y = genre count (vertical, nonlinear as in your main chart)
-            const yScale = d3.scaleLinear()
-                .domain([0, d3.max(circles, d => d.count)])
-                .range([height - margin.bottom, margin.top]);
-
-            function yPos(count) {
-                return count < 10 ? yScale(count * 3)
-                    : count < 40 ? yScale(count * 1.2)
-                        : yScale(count * 1.2);
             }
+            return { allGenres, allCounts, top100Counts, featureMeans };
+        }
 
-            // Assign initial positions for simulation
-            circles.forEach(d => {
-                d.x = xCenter;
-                d.y = yPos(d.count);
-            });
-
-            const simulation = d3.forceSimulation(circles)
-                .force("x", d3.forceX(xCenter).strength(1))
-                .force("y", d3.forceY(d => yPos(d.count)).strength(3))
-                .force("collide", d3.forceCollide(d => d.radius + 7))
-                .alphaDecay(0.09)
-                .alpha(1)
-                .stop();
-
-            for (let i = 0; i < 200; ++i) simulation.tick();
-
-            // ---- 4. Draw (main viz style) ----
-            const neon = "#00ffff";
+        // --- RENDERING HELPERS ---
+        function createSVG() {
             const svg = d3.create("svg")
-                .attr("width", width)
-                .attr("height", height)
-                .style("background", "#d00"); // same red as radar cell
+                .attr("width", WIDTH)
+                .attr("height", HEIGHT)
+                .style("background", "#d00");
+            addDefs(svg);
+            return svg;
+        }
 
+        function addDefs(svg) {
+            // Main gradient
             const defs = svg.append("defs");
-
-            // Gradient definition
             defs.append("linearGradient")
                 .attr("id", "bg-gradient")
                 .attr("x1", "0%").attr("y1", "0%")
                 .attr("x2", "0%").attr("y2", "100%")
                 .selectAll("stop")
                 .data([
-                    { offset: "0%", color: "#ff70a6" },   // pink
-                    { offset: "100%", color: "#7158e2" }  // purple
+                    { offset: "0%", color: "#ff70a6" },
+                    { offset: "100%", color: "#7158e2" }
                 ])
                 .enter()
                 .append("stop")
                 .attr("offset", d => d.offset)
                 .attr("stop-color", d => d.color);
-
-            // Add the background rectangle before everything else:
-            svg.append("rect")
-                .attr("x", 0)
-                .attr("y", 0)
-                .attr("width", width)
-                .attr("height", height)
-                .attr("fill", "url(#bg-gradient)");
+            // Glow filter
             defs.append("filter")
                 .attr("id", "glow")
                 .html(`
-    <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
-    <feMerge>
-      <feMergeNode in="coloredBlur"/>
-      <feMergeNode in="SourceGraphic"/>
-    </feMerge>
-  `);
-            // 1. Define a left-to-transparent gradient in <defs>
+          <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+          <feMerge>
+            <feMergeNode in="coloredBlur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        `);
+            // Black-to-transparent left fade
             defs.append("linearGradient")
                 .attr("id", "left-black-fade")
                 .attr("x1", "0%").attr("y1", "0%")
@@ -260,86 +145,193 @@
                 .attr("offset", d => d.offset)
                 .attr("stop-color", d => d.color)
                 .attr("stop-opacity", d => d.opacity);
+        }
 
-            // 2. Rectangle: left 50% of SVG, full height, using the gradient
+        function drawBackground(svg) {
+            // BG gradient
             svg.append("rect")
                 .attr("x", 0)
                 .attr("y", 0)
-                .attr("width", width / 2)
-                .attr("height", height)
+                .attr("width", WIDTH)
+                .attr("height", HEIGHT)
+                .attr("fill", "url(#bg-gradient)");
+            // Black left fade
+            svg.append("rect")
+                .attr("x", 0)
+                .attr("y", 0)
+                .attr("width", WIDTH / 2)
+                .attr("height", HEIGHT)
                 .attr("fill", "url(#left-black-fade)");
+        }
 
-            // 3. Add the title (customize as needed)
+        function drawTitleAndDesc(svg, dataLinkY) {
             svg.append("text")
-                .attr("x", 60) // adjust as needed
-                .attr("y", 100) // adjust as needed
+                .attr("x", 60)
+                .attr("y", 100)
                 .style("fill", "#fff")
                 .style("font-size", "52px")
                 .style("font-weight", "bold")
                 .style("font-family", "sans-serif")
-                .style("text-shadow", "0 4px 40px #000a") // optional, for glow/legibility
+                .style("text-shadow", "0 4px 40px #000a")
                 .text("Music Genres Visualization");
-
-            const dataLinkY = 100 + 52 + 30; // title Y + font size + margin
-
             svg.append("a")
-                .attr("xlink:href", "https://www.kaggle.com/datasets/iamsumat/spotify-top-2000s-mega-dataset") // or your desired URL
+                .attr("xlink:href", "https://www.kaggle.com/datasets/iamsumat/spotify-top-2000s-mega-dataset")
                 .attr("target", "_blank")
                 .append("text")
                 .attr("x", 60)
                 .attr("y", dataLinkY)
-                .style("fill", neon)
+                .style("fill", NEON)
                 .style("font-size", "20px")
                 .style("font-family", "sans-serif")
                 .style("font-weight", "bold")
                 .style("cursor", "pointer")
                 .text("Download the data");
+            // Description paragraph
+            const descX = 60, descY = dataLinkY + 36;
+            svg.append("text")
+                .attr("x", descX)
+                .attr("y", descY)
+                .attr("text-anchor", "start")
+                .style("font-size", "19px")
+                .style("fill", "#fff")
+                .style("font-family", "sans-serif")
+                .style("font-weight", "normal")
+                .attr("opacity", 0.92)
+                .call(function (text) {
+                    [
+                        "Explore the soundscape of Spotify's top 2000 tracks, spanning decades of music",
+                        "history. This dataset captures key audio features like BPM (tempo), energy,",
+                        "danceability, loudness (dB), and valence (musical positivity). Genres are grouped",
+                        "into broad categories for clarity.",
+                        " ",
+                        "In this visualization, each circle is a genre, sized by its total number of records",
+                        "in the dataset. The vertical position reflects how often genres appear in the top 100",
+                        "most popular tracks (by Spotify popularity score). Petal shapes radiate the average",
+                        "values of the five main audio features, normalized per genre.",
+                        " ",
+                        "Hover over a genre to spotlight its stats: the number of top records that get into the",
+                        "top 100 and total number of them. Patterns emerge, such as Pop and Rock genres",
+                        "dominating the top 100.",
+
+                    ].forEach((line, i) =>
+                        text.append("tspan")
+                            .attr("x", descX)
+                            .attr("dy", i === 0 ? "1em" : "1.3em")
+                            .text(line)
+                    );
+                });
+        }
+
+        function radarPetalPath(norms, max_feature, radius, exaggeration = 0.8) {
+            const num = norms.length, angle = 2 * Math.PI / num;
+            const points = [];
+            const min_feature = 0; // if you want to allow zero, else set to a higher minimum
+
+            // Define output range for petal radii
+            const min_radius = 0.2 * radius;
+            const max_radius = 0.95 * radius;
+
+            for (let i = 0; i < num; i++) {
+                // Clamp norm between min_feature and max_feature
+                const normA = Math.max(norms[i], min_feature);
+                const normB = Math.max(norms[(i + 1) % num], min_feature);
+
+                // Linear mapping from normA in [0, max_feature] to [min_radius, max_radius]
+                const lenA = min_radius + (normA / max_feature) * (max_radius - min_radius);
+                const lenB = min_radius + (normB / max_feature) * (max_radius - min_radius);
+
+                const thetaA = i * angle - Math.PI / 2;
+                const thetaB = ((i + 1) % num) * angle - Math.PI / 2;
+                const a = [Math.cos(thetaA) * lenA, Math.sin(thetaA) * lenA];
+                const b = [Math.cos(thetaB) * lenB, Math.sin(thetaB) * lenB];
+
+                // Midpoint between points, then exaggerate
+                const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+                const cx = 0, cy = 0;
+                const dx = mx - cx, dy = my - cy;
+                const ex = cx + dx * exaggeration;
+                const ey = cy + dy * exaggeration;
+
+                points.push(a, [ex, ey]);
+            }
+            return d3.line().curve(d3.curveCardinalClosed.tension(-1))(points);
+        }
+
+        function makeGenreCircleObj(genre, featureMeans, allGenreCounts, top100Counts, max_feature) {
+            if (!featureMeans[genre]) return null;
+            const norms = Object.values(featureMeans[genre]);
+            // Calculate normalized feature vector
 
 
+            const totals = Object.values(allGenreCounts);
+            const bubbleR = d3.scaleSqrt()
+                .domain([0, d3.max(totals)])
+                .range([20, 200]);
+            const radius = bubbleR(allGenreCounts[genre] ?? 0);
+            return {
+                genre,
+                radius,
+                norms,
+                petalPath: radarPetalPath(norms, max_feature, radius * 1.05, 0.8),
+                count: top100Counts[genre] ?? 0,
+                total: allGenreCounts[genre] ?? 0
+            };
+        }
 
-            // Example genres/colors for the legend (replace Pop as needed)
+        function drawGenreBubbles(svg, circles, color) {
+            const xCenter = WIDTH - MARGIN.right;
+            // y = genre count (vertical, nonlinear as in your main chart)
+            const yScale = d3.scaleLinear()
+                .domain([0, d3.max(circles, d => d.count)])
+                .range([HEIGHT - MARGIN.bottom, MARGIN.top]);
+            function yPos(count) {
+                return count < 10 ? yScale(count * 3)
+                    : count < 40 ? yScale(count * 1.2)
+                        : yScale(count * 1.2);
+            }
+            // Assign positions, run force sim
+            circles.forEach(d => {
+                d.x = xCenter;
+                d.y = yPos(d.count);
+            });
+            const simulation = d3.forceSimulation(circles)
+                .force("x", d3.forceX(xCenter).strength(1))
+                .force("y", d3.forceY(d => yPos(d.count)).strength(3))
+                .force("collide", d3.forceCollide(d => d.radius + 7))
+                .alphaDecay(0.09)
+                .alpha(1)
+                .stop();
+            for (let i = 0; i < 200; ++i) simulation.tick();
 
-            const g = svg.selectAll("g")
+            // --- Draw
+            const g = svg.selectAll("g.genre-bubble")
                 .data(circles)
                 .enter()
                 .append("g")
+                .attr("class", "genre-bubble")
                 .attr("transform", d => `translate(${d.x},${d.y})`);
-            const color = d3.scaleOrdinal(d3.schemeSet2).domain(Object.keys(allGenreCounts));
-
 
             g.append("circle")
                 .attr("class", "main-genre-circle")
                 .attr("r", d => d.radius)
                 .attr("fill", "#000");
 
-            // g.append("path")
-            //   .attr("d", d => d.petalPath)
-            //   .attr("stroke", neon)
-            //   .attr("stroke-width", 5)
-            //   .attr("fill", "none")
-            //   .attr("filter", "url(#glow)")
-            //   .attr("opacity", 0.35);
-
             g.append("path")
                 .attr("d", d => d.petalPath)
-                .attr("stroke", neon)
+                .attr("stroke", NEON)
                 .attr("stroke-width", 2)
                 .attr("fill", "none")
-                .attr("pointer-events", "none") // <- This too!
-
                 .attr("filter", "url(#glow)")
+                .attr("pointer-events", "none")
                 .attr("opacity", 1);
 
             g.append("circle")
                 .attr("r", d => d.radius * 0.3)
-                .attr("pointer-events", "none") // <- This too!
-
+                .attr("pointer-events", "none")
                 .attr("fill", d => color(d.genre));
 
-            // Smallest black inner circle (7%)
             g.append("circle")
-                .attr("pointer-events", "none") // <- This too!
-
+                .attr("pointer-events", "none")
                 .attr("r", d => d.radius * 0.07)
                 .attr("fill", "#000");
 
@@ -360,7 +352,6 @@
                     .attr("stroke", "none")
                     .attr("d", `M${startX},${startY} A${r},${r} 0 0,1 ${endX},${endY}`);
 
-                // Flip text horizontally and vertically
                 d3.select(this)
                     .append("text")
                     .attr("transform", "scale(-1,-1)")
@@ -377,20 +368,16 @@
             g.select("circle.main-genre-circle")
                 .on("mouseover", function (event, d) {
                     const group = d3.select(this.parentNode);
-
-                    // Add highlight circle ON TOP (default), but make it ignore mouse
                     group.append("circle")
                         .attr("class", "highlight-circle")
                         .attr("r", d.radius)
                         .attr("fill", "#000")
                         .attr("opacity", 0.8)
-                        .attr("pointer-events", "none"); // <- This is the magic!
-
+                        .attr("pointer-events", "none");
                     const fontSize = Math.max(12, d.radius * 0.4);
-
                     group.append("text")
                         .attr("class", "highlight-fraction")
-                        .attr("pointer-events", "none") // <- This too!
+                        .attr("pointer-events", "none")
                         .attr("text-anchor", "middle")
                         .attr("dominant-baseline", "middle")
                         .attr("y", 0)
@@ -402,7 +389,7 @@
                             const text = d3.select(this);
                             text.html("");
                             text.append("tspan")
-                                .attr("x", 0).attr("dy", "-0.35em")
+                                .attr("x", 0).attr("dy", "-0.65em")
                                 .text(d.count);
                             text.append("tspan")
                                 .attr("x", 0).attr("dy", "1.1em")
@@ -420,78 +407,89 @@
                     group.selectAll(".highlight-circle").remove();
                     group.selectAll(".highlight-fraction").remove();
                 });
+        }
 
-            // Legend settings
-            const legendRadius = 90;
-            const legendMarginBottom = 180; // space from bottom edge
-            const legendGap = 60; // horizontal gap between two circles
+        function addCurvedLabel(gSelection, label, radius) {
+            const arcId = "legend-arc-" + Math.random().toString(36).slice(2, 8);
+            const r = radius + 3;
+            const startAngle = Math.PI * 6 / 9;
+            const endAngle = Math.PI * -3 / 9;
+            const startX = r * Math.cos(startAngle);
+            const startY = r * Math.sin(startAngle);
+            const endX = r * Math.cos(endAngle);
+            const endY = r * Math.sin(endAngle);
+            gSelection.append("path")
+                .attr("id", arcId)
+                .attr("fill", "none")
+                .attr("stroke", "none")
+                .attr("d", `M${startX},${startY} A${r},${r} 0 0,1 ${endX},${endY}`);
+            gSelection.append("text")
+                .attr("transform", "scale(-1,-1)")
+                .append("textPath")
+                .attr("href", "#" + arcId)
+                .attr("startOffset", "0%")
+                .style("font-size", "14px")
+                .style("fill", "#fff")
+                .style("font-family", "sans-serif")
+                .style("font-weight", "bold")
+                .text(label);
+        }
 
-            const legendY = height - legendMarginBottom;
-            const legendX1 = 250 + legendRadius;
-            const legendX2 = legendX1 + legendRadius * 2 + legendGap;
-
+        function drawLegend(svg) {
+            // Legend positions
+            const legendY = HEIGHT - 180;
+            const legendX1 = 250 + LEGEND_RADIUS;
+            const legendX2 = legendX1 + LEGEND_RADIUS * 2 + 60;
+            // Colors for illustration
             const legendGenres = [
-                { genre: "Genre", color: "#fcaf3e" }, // Orange
+                { genre: "Genre", color: "#fcaf3e" },
                 { genre: "Highlight", color: "#000" }
             ];
-
-            // Left legend (Pop-like genre)
+            // Left legend (genre)
             const legend1 = svg.append("g")
                 .attr("transform", `translate(${legendX1},${legendY})`);
-            legend1.append("circle")
-                .attr("r", legendRadius)
-                .attr("fill", "#000");
-            legend1.append("circle")
-                .attr("r", legendRadius * 0.3)
-                .attr("fill", legendGenres[0].color);
-            legend1.append("circle")
-                .attr("r", legendRadius * 0.07)
-                .attr("fill", "#000");
+            legend1.append("circle").attr("r", LEGEND_RADIUS).attr("fill", "#000");
+            legend1.append("circle").attr("r", LEGEND_RADIUS * 0.3).attr("fill", legendGenres[0].color);
+            legend1.append("circle").attr("r", LEGEND_RADIUS * 0.07).attr("fill", "#000");
+            addCurvedLabel(legend1, legendGenres[0].genre, LEGEND_RADIUS);
+            // Radar axes and petal for legend
+            const radarNumAxes = FEATURES.length;
+            const radarRadius = LEGEND_RADIUS * 0.9;
+            for (let i = 0; i < radarNumAxes; i++) {
+                const angle = (2 * Math.PI / radarNumAxes) * i - Math.PI / 2;
+                legend1.append("line")
+                    .attr("x1", 0)
+                    .attr("y1", 0)
+                    .attr("x2", Math.cos(angle) * radarRadius)
+                    .attr("y2", Math.sin(angle) * radarRadius)
+                    .attr("stroke", "#aaa")
+                    .attr("stroke-width", 1)
+                    .attr("opacity", 0.7);
+                legend1.append("text")
+                    .attr("x", Math.cos(angle) * (radarRadius + 28))
+                    .attr("y", Math.sin(angle) * (radarRadius + 28) + 7)
+                    .attr("text-anchor", "middle")
+                    .attr("fill", "#fff")
+                    .attr("font-size", "14px")
+                    .attr("font-family", "sans-serif")
+                    .text(FEATURES[i].name.replace(/\s*\(.*?\)/, ""));
+            }
+            // Dummy petal
+            const dummyNorm = [0.7, 0.5, 0.85, 0.5, 0.6];
+            legend1.append("path")
+                .attr("d", radarPetalPath(dummyNorm, 1, radarRadius, 0.8))
+                .attr("stroke", NEON)
+                .attr("stroke-width", 2)
+                .attr("fill", "none")
+                .attr("filter", "url(#glow)")
+                .attr("opacity", 1);
 
-
-            // Right legend (Highlight: just a solid black circle)
+            // Right legend (highlight)
             const legend2 = svg.append("g")
                 .attr("transform", `translate(${legendX2},${legendY})`);
-            legend2.append("circle")
-                .attr("r", legendRadius)
-                .attr("fill", "#000");
-
-            function addCurvedLabel(gSelection, label, radius) {
-                const arcId = "legend-arc-" + Math.random().toString(36).slice(2, 8); // unique ID
-                const r = radius + 3;
-                const startAngle = Math.PI * 6 / 9;
-                const endAngle = Math.PI * -3 / 9;
-                const startX = r * Math.cos(startAngle);
-                const startY = r * Math.sin(startAngle);
-                const endX = r * Math.cos(endAngle);
-                const endY = r * Math.sin(endAngle);
-
-                gSelection.append("path")
-                    .attr("id", arcId)
-                    .attr("fill", "none")
-                    .attr("stroke", "none")
-                    .attr("d", `M${startX},${startY} A${r},${r} 0 0,1 ${endX},${endY}`);
-
-                gSelection.append("text")
-                    .attr("transform", "scale(-1,-1)")
-                    .append("textPath")
-                    .attr("href", "#" + arcId)
-                    .attr("startOffset", "0%")
-                    .style("font-size", "14px")
-                    .style("fill", "#fff")
-                    .style("font-family", "sans-serif")
-                    .style("font-weight", "bold")
-                    .text(label);
-            }
-
-            // Legend 1 (for Pop or another genre)
-            addCurvedLabel(legend1, legendGenres[0].genre, legendRadius);
-
-            // Legend 2 (for Highlight)
-            addCurvedLabel(legend2, "Highlight", legendRadius);
-
-            const fontSize = Math.max(12, legendRadius * 0.22);
-
+            legend2.append("circle").attr("r", LEGEND_RADIUS).attr("fill", "#000").attr("opacity", 0.8);
+            addCurvedLabel(legend2, legendGenres[1].genre, LEGEND_RADIUS);
+            const fontSize = Math.max(12, LEGEND_RADIUS * 0.22);
             legend2.append("text")
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "middle")
@@ -512,7 +510,7 @@
                         .style("font-size", fontSize * 0.75)
                         .text("in top 100");
                     text.append("tspan")
-                        .attr("x", 0).attr("dy", "1.1em")
+                        .attr("x", 0).attr("dy", "1em")
                         .style("font-size", fontSize)
                         .text("—");
                     text.append("tspan")
@@ -521,158 +519,25 @@
                         .text("total records");
                     return this;
                 });
-            const radarNumAxes = features.length; // 5, from your config
-            const radarRadius = legendRadius * 0.9; // slightly inside the genre bubble
 
-            // Draw axes/spokes from center outward
-            for (let i = 0; i < radarNumAxes; i++) {
-                const angle = (2 * Math.PI / radarNumAxes) * i - Math.PI / 2;
-                const x = Math.cos(angle) * (radarRadius + 28); // place labels outside axis
-                const y = Math.sin(angle) * (radarRadius + 28);
-
-                // Draw axis line
-                legend1.append("line")
-                    .attr("x1", 0)
-                    .attr("y1", 0)
-                    .attr("x2", Math.cos(angle) * radarRadius)
-                    .attr("y2", Math.sin(angle) * radarRadius)
-                    .attr("stroke", "#aaa")
-                    .attr("stroke-width", 1)
-                    .attr("opacity", 0.7);
-
-                // Draw label
-                legend1.append("text")
-                    .attr("x", x)
-                    .attr("y", y + 7) // adjust for vertical alignment
-                    .attr("text-anchor", "middle")
-                    .attr("fill", "#fff")
-                    .attr("font-size", "14px")
-                    .attr("font-family", "sans-serif")
-                    .text(features[i].name.replace(/\s*\(.*?\)/, "")); // Shorten "Beats Per Minute (BPM)" → "Beats Per Minute"
-            }
-
-            const dummyNormalized = [0.7, 0.5, 0.85, 0.5, 0.6]; // as many as FEATURES
-
-            // Generate petal points as in your main viz
-            const legendPetalPoints = [];
-            const num = features.length;
-            const angle = 2 * Math.PI / num;
-            for (let i = 0; i < num; i++) {
-                const norm = dummyNormalized[i];
-                const len = norm * radarRadius;
-                const theta = i * angle - Math.PI / 2;
-                legendPetalPoints.push([
-                    Math.cos(theta) * len,
-                    Math.sin(theta) * len
-                ]);
-            }
-            // Add midpoints for wavy petals
-            const legendPetals = [];
-            for (let i = 0; i < num; i++) {
-                const a = legendPetalPoints[i];
-                const b = legendPetalPoints[(i + 1) % num];
-                const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-                const cx = 0, cy = 0;
-                const dx = mx - cx, dy = my - cy;
-                const exaggeration = 0.8;
-                const ex = cx + dx * exaggeration;
-                const ey = cy + dy * exaggeration;
-                legendPetals.push(a, [ex, ey]);
-            }
-            // Use D3 line generator for smooth closed path
-            const legendLine = d3.line().curve(d3.curveCardinalClosed.tension(-1));
-
-            legend1.append("path")
-                .attr("d", legendLine(legendPetals))
-                .attr("stroke", "#00ffff")
-                .attr("stroke-width", 2)
-                .attr("fill", "none")
-                .attr("filter", "url(#glow)")
-                .attr("opacity", 1);
-
-            // Center of SVG
-            const centerX = width / 2 - 40;
-            const axisMargin = 60; // gap from top/bottom
-            const axisHeight = height * 0.9;
-            const axisTopY = (height - axisHeight) / 2;
-            const axisBottomY = axisTopY + axisHeight;
-
-            // Draw axis line (arrow shaft)
+            // Below left legend: horizontal double arrow with label
+            const legendArrowY = legendY + LEGEND_RADIUS + 45;
+            const arrowLen = LEGEND_RADIUS * 2;
+            const arrowX1 = legendX1 - LEGEND_RADIUS;
+            const arrowX2 = legendX1 + LEGEND_RADIUS;
             svg.append("line")
-                .attr("x1", centerX)
-                .attr("y1", axisBottomY)
-                .attr("x2", centerX)
-                .attr("y2", axisTopY + 5) // leave space for arrowhead
-                .attr("stroke", "#fff")
-                .attr("stroke-width", 1)
-                .attr("opacity", 0.6)
-                .attr("stroke-linecap", "round");
-
-            // Arrowhead (triangle at the very top)
-            const arrowWidth = 5, arrowHeadHeight = 7;
+                .attr("x1", arrowX1 + 5).attr("y1", legendArrowY)
+                .attr("x2", arrowX2 - 5).attr("y2", legendArrowY)
+                .attr("stroke", "#fff").attr("stroke-width", 1)
+                .attr("opacity", 0.6).attr("stroke-linecap", "round");
             svg.append("polygon")
-                .attr("points", `
-    ${centerX},${axisTopY}
-    ${centerX - arrowWidth / 2},${axisTopY + arrowHeadHeight}
-    ${centerX + arrowWidth / 2},${axisTopY + arrowHeadHeight}
-  `)
-                .attr("opacity", 0.6)
-                .attr("fill", "#fff");
-
-            // Label: along the shaft (rotated)
+                .attr("points", `${arrowX1},${legendArrowY} ${arrowX1 + 7},${legendArrowY - 4} ${arrowX1 + 7},${legendArrowY + 4}`)
+                .attr("fill", "#fff").attr("opacity", 0.6);
+            svg.append("polygon")
+                .attr("points", `${arrowX2},${legendArrowY} ${arrowX2 - 7},${legendArrowY - 4} ${arrowX2 - 7},${legendArrowY + 4}`)
+                .attr("fill", "#fff").attr("opacity", 0.6);
             svg.append("text")
-                .attr("x", centerX - 25) // offset so label sits nicely beside the shaft
-                .attr("y", height / 2 + 20)
-                .attr("text-anchor", "middle")
-                .attr("transform", `rotate(-90,${centerX - 25},${height / 2})`)
-                .style("font-size", "15px")
-                .style("fill", "#fff")
-                .style("font-family", "sans-serif")
-                .style("font-weight", "bold")
-                .attr("opacity", 0.6)
-                .text("# of records in top 100");
-
-            // Position: underneath the genre legend
-            const legendArrowY = legendY + legendRadius + 45; // 56px below circle, adjust as needed
-            const arrowLen = legendRadius * 2;
-            const arrowX1 = legendX1 - legendRadius;
-            const arrowX2 = legendX1 + legendRadius;
-
-            // Draw horizontal line (shaft)
-            svg.append("line")
-                .attr("x1", arrowX1 + 5)  // +5 to leave space for arrowhead
-                .attr("y1", legendArrowY)
-                .attr("x2", arrowX2 - 5)  // -5 for arrowhead
-                .attr("y2", legendArrowY)
-                .attr("stroke", "#fff")
-                .attr("stroke-width", 1)
-                .attr("opacity", 0.6)
-                .attr("stroke-linecap", "round");
-
-            // Left arrowhead
-            svg.append("polygon")
-                .attr("points", `
-    ${arrowX1},${legendArrowY}
-    ${arrowX1 + 7},${legendArrowY - 4}
-    ${arrowX1 + 7},${legendArrowY + 4}
-  `)
-                .attr("fill", "#fff")
-                .attr("opacity", 0.6);
-
-            // Right arrowhead
-            svg.append("polygon")
-                .attr("points", `
-    ${arrowX2},${legendArrowY}
-    ${arrowX2 - 7},${legendArrowY - 4}
-    ${arrowX2 - 7},${legendArrowY + 4}
-  `)
-                .attr("fill", "#fff")
-                .attr("opacity", 0.6);
-
-            // Label centered on the arrow
-            svg.append("text")
-                .attr("x", legendX1)
-                .attr("y", legendArrowY + 15)
+                .attr("x", legendX1).attr("y", legendArrowY + 15)
                 .attr("text-anchor", "middle")
                 .style("font-size", "15px")
                 .style("fill", "#fff")
@@ -680,10 +545,8 @@
                 .style("font-weight", "bold")
                 .attr("opacity", 0.6)
                 .text("total records");
-
             svg.append("text")
-                .attr("x", legendX2)
-                .attr("y", legendArrowY + 5)
+                .attr("x", legendX2).attr("y", legendArrowY + 5)
                 .attr("text-anchor", "middle")
                 .style("font-size", "15px")
                 .style("fill", "#fff")
@@ -691,81 +554,67 @@
                 .style("font-weight", "bold")
                 .attr("opacity", 0.6)
                 .text("highlight on hover");
+        }
 
-            const descX = 60; // Align with title and link
-            const descY = dataLinkY + 36; // Just below the data link; adjust as needed
-
+        function drawCentralAxis(svg) {
+            // Vertical axis with arrow and label
+            const centerX = WIDTH / 2 - 40;
+            const axisHeight = HEIGHT * 0.9;
+            const axisTopY = (HEIGHT - axisHeight) / 2;
+            const axisBottomY = axisTopY + axisHeight;
+            svg.append("line")
+                .attr("x1", centerX).attr("y1", axisBottomY)
+                .attr("x2", centerX).attr("y2", axisTopY + 5)
+                .attr("stroke", "#fff").attr("stroke-width", 1)
+                .attr("opacity", 0.6).attr("stroke-linecap", "round");
+            svg.append("polygon")
+                .attr("points", `${centerX},${axisTopY} ${centerX - 4},${axisTopY + 7} ${centerX + 4},${axisTopY + 7}`)
+                .attr("opacity", 0.6).attr("fill", "#fff");
             svg.append("text")
-                .attr("x", descX)
-                .attr("y", descY)
-                .attr("text-anchor", "start")
-                .style("font-size", "19px")
+                .attr("x", centerX - 25)
+                .attr("y", HEIGHT / 2 + 20)
+                .attr("text-anchor", "middle")
+                .attr("transform", `rotate(-90,${centerX - 25},${HEIGHT / 2})`)
+                .style("font-size", "15px")
                 .style("fill", "#fff")
                 .style("font-family", "sans-serif")
-                .style("font-weight", "normal")
-                .attr("opacity", 0.92)
-                .html(null) // for multiline with tspan below
-                .call(function (text) {
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1em")
-                        .text("This dataset contains audio statistics of the top 2000 tracks on Spotify. ");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("The data contains about 15 columns each describing the track and it's qualities.");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("Songs released from 1956 to 2019 are included from some notable ");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("and famous artists like Queen, The Beatles, Guns N' Roses, etc.");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text(" ");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("This visualization shows the distribution of music genres in the top songs on Spotify.");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("It provides the opportunity to explore musical tastes of general public");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("by comparing musical features of different genres and their share.");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text(" ");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("Each circle represents a music genre. ");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("It's radius is proportional to the number of songs corresponding to this genre.");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("It's vertical position is reflects the number of songs in the top 100.");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("Petal shapes show the significance of musical features in the respective genres.");
-                    text.append("tspan")
-                        .attr("x", descX)
-                        .attr("dy", "1.3em")
-                        .text("Hover over a genre circle to highlight its stats.");
-                });
-            // Mount SVG to page
+                .style("font-weight", "bold")
+                .attr("opacity", 0.6)
+                .text("# of records in top 100");
+        }
+
+        // ---- MAIN ----
+        d3.csv("Spotify-2000-updated.csv").then(function (data) {
+            // --- Data prep
+            const { allGenres, allCounts, top100Counts, featureMeans } = genreStats(
+                data,
+                FEATURES.map(f => f.name)
+            );
+            // Find the largest value in featureMeans
+            let max_feature = -Infinity;
+            for (const genre of Object.keys(featureMeans)) {
+                for (const feat of Object.keys(featureMeans[genre])) {
+                    const val = featureMeans[genre][feat];
+                    if (val > max_feature) max_feature = val;
+                }
+            }
+            const circles = allGenres
+                .map(g => makeGenreCircleObj(g, featureMeans, allCounts, top100Counts, max_feature))
+                .filter(Boolean);
+            const color = d3.scaleOrdinal(d3.schemeSet2).domain(allGenres);
+
+            // --- Rendering
+            const svg = createSVG();
+            drawBackground(svg);
+            drawTitleAndDesc(svg, 100 + 52 + 30);
+            drawLegend(svg);
+            drawCentralAxis(svg);
+            drawGenreBubbles(svg, circles, color);
+
+            // Mount to page
             document.body.prepend(svg.node());
         });
+
     </script>
 </body>
 
