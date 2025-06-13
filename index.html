@@ -368,14 +368,21 @@
             g.select("circle.main-genre-circle")
                 .on("mouseover", function (event, d) {
                     const group = d3.select(this.parentNode);
-                    group.append("circle")
+
+                    // Highlight circle (fade-in)
+                    const highlight = group.append("circle")
                         .attr("class", "highlight-circle")
                         .attr("r", d.radius)
                         .attr("fill", "#000")
-                        .attr("opacity", 0.8)
-                        .attr("pointer-events", "none");
+                        .attr("opacity", 0)
+                        .attr("pointer-events", "none")
+                        .transition()
+                        .duration(400)
+                        .attr("opacity", 0.8);
+
+                    // Text (fade-in)
                     const fontSize = Math.max(12, d.radius * 0.4);
-                    group.append("text")
+                    const highlightText = group.append("text")
                         .attr("class", "highlight-fraction")
                         .attr("pointer-events", "none")
                         .attr("text-anchor", "middle")
@@ -385,28 +392,47 @@
                         .style("font-size", fontSize)
                         .style("font-weight", "bold")
                         .style("fill", "#fff")
-                        .selectAll(function () {
-                            const text = d3.select(this);
-                            text.html("");
-                            text.append("tspan")
-                                .attr("x", 0).attr("dy", "-0.65em")
-                                .text(d.count);
-                            text.append("tspan")
-                                .attr("x", 0).attr("dy", "1.1em")
-                                .style("font-size", fontSize * 0.6)
-                                .text("—");
-                            text.append("tspan")
-                                .attr("x", 0).attr("dy", "1.1em")
-                                .style("font-size", fontSize * 0.75)
-                                .text(d.total);
-                            return this;
-                        });
+                        .style("opacity", 0);
+
+                    highlightText.selectAll(function () {
+                        const text = d3.select(this);
+                        text.html("");
+                        text.append("tspan")
+                            .attr("x", 0).attr("dy", "-0.65em")
+                            .text(d.count);
+                        text.append("tspan")
+                            .attr("x", 0).attr("dy", "1.1em")
+                            .style("font-size", fontSize * 0.6)
+                            .text("—");
+                        text.append("tspan")
+                            .attr("x", 0).attr("dy", "1.1em")
+                            .style("font-size", fontSize * 0.75)
+                            .text(d.total);
+                        return this;
+                    });
+
+                    highlightText.transition()
+                        .duration(400)
+                        .style("opacity", 1);
                 })
                 .on("mouseout", function () {
                     const group = d3.select(this.parentNode);
-                    group.selectAll(".highlight-circle").remove();
-                    group.selectAll(".highlight-fraction").remove();
+
+                    // Fade-out highlight circle
+                    group.selectAll(".highlight-circle")
+                        .transition()
+                        .duration(300)
+                        .attr("opacity", 0)
+                        .remove();
+
+                    // Fade-out highlight text
+                    group.selectAll(".highlight-fraction")
+                        .transition()
+                        .duration(300)
+                        .style("opacity", 0)
+                        .remove();
                 });
+
         }
 
         function addCurvedLabel(gSelection, label, radius) {
