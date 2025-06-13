@@ -19,9 +19,10 @@ The dataset contains audio statistics of the top 2000 tracks on Spotify from 195
 
 1. **Update the data:**
    ```bash
+   cd src
    python main.py
    ```
-   This processes the original CSV file and creates `Spotify-2000-updated.csv` with broad genre categories.
+   This processes the original CSV file and creates `Spotify-2000-updated.csv` with broad genre categories in the `data/` folder.
 
 2. **Launch the visualization:**
    ```bash
@@ -43,10 +44,18 @@ pip install -r requirements.txt
 - **Petal Shapes**: Radar chart showing normalized values of 5 audio features (Valence, Energy, BPM, Danceability, Loudness)
 - **Hover Interaction**: Displays detailed statistics for each genre
 
-## Files
+## Project Structure
 
-- `main.py` - Data processing script that maps genres and creates updated CSV
-- `index.html` - Interactive D3.js visualization
-- `Spotify-2000.csv` - Original dataset
-- `Spotify-2000-updated.csv` - Processed dataset with broad genre categories
-- `requirements.txt` - Python dependencies
+```
+SpotifyData/
+├── README.md                    # Project documentation
+├── index.html                   # Interactive D3.js visualization
+├── requirements.txt             # Python dependencies
+├── src/
+│   └── main.py                  # Data processing script that maps genres
+├── data/
+│   ├── Spotify-2000.csv         # Original dataset
+│   └── Spotify-2000-updated.csv # Processed dataset with broad genre categories
+└── assets/
+    └── needle.png               # Visualization asset (needle image)
+```

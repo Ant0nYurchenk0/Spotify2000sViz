@@ -607,7 +607,7 @@
                 transform += ` translate(${x * 2},0) scale(-1,1)`;
             }
             return svg.append("image")
-                .attr("xlink:href", "needle.png")
+                .attr("xlink:href", "assets/needle.png")
                 .attr("width", size)
                 .attr("height", size)
                 .attr("x", x - size / 2)
@@ -616,7 +616,7 @@
                 .attr("transform", transform);
         }
         // ---- MAIN ----
-        d3.csv("Spotify-2000-updated.csv").then(function (data) {
+        d3.csv("data/Spotify-2000-updated.csv").then(function (data) {
             // --- Data prep
             const { allGenres, allCounts, top100Counts, featureMeans } = genreStats(
                 data,

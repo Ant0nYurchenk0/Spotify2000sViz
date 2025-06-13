@@ -1,6 +1,6 @@
 import pandas as pd
 
-df = pd.read_csv('Spotify-2000.csv')
+df = pd.read_csv('../data/Spotify-2000.csv')
 
 genre_map = {
     "acid jazz":        "Jazz",
@@ -158,5 +158,5 @@ df['Broad Genre'] = df['Top Genre'].str.lower().map(genre_map)
 
 print(df['Broad Genre'].value_counts())
 
-output_path = 'Spotify-2000-updated.csv'
+output_path = '../data/Spotify-2000-updated.csv'
 df.to_csv(output_path, index=False)
