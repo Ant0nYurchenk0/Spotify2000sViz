@@ -630,7 +630,7 @@
                 .style("font-family", "sans-serif")
                 .style("font-weight", "bold")
                 .attr("opacity", 0.6)
-                .text("# of top 100 records");
+                .text("# of records in top 100");
 
             // Position: underneath the genre legend
             const legendArrowY = legendY + legendRadius + 45; // 56px below circle, adjust as needed
@@ -744,15 +744,15 @@
                         .text(" ");
                     text.append("tspan")
                         .attr("x", descX)
-                        .attr("dy", "1em")
+                        .attr("dy", "1.3em")
                         .text("Each circle represents a music genre. ");
                     text.append("tspan")
                         .attr("x", descX)
-                        .attr("dy", "1em")
+                        .attr("dy", "1.3em")
                         .text("It's radius is proportional to the number of songs corresponding to this genre.");
                     text.append("tspan")
                         .attr("x", descX)
-                        .attr("dy", "1em")
+                        .attr("dy", "1.3em")
                         .text("It's vertical position is reflects the number of songs in the top 100.");
                     text.append("tspan")
                         .attr("x", descX)
@@ -761,7 +761,7 @@
                     text.append("tspan")
                         .attr("x", descX)
                         .attr("dy", "1.3em")
-                        .text("Hover over a circle to highlight its stats.");
+                        .text("Hover over a genre circle to highlight its stats.");
                 });
             // Mount SVG to page
             document.body.prepend(svg.node());
