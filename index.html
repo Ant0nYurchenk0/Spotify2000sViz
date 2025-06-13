@@ -457,14 +457,15 @@
             const radarRadius = LEGEND_RADIUS * 0.9;
             for (let i = 0; i < radarNumAxes; i++) {
                 const angle = (2 * Math.PI / radarNumAxes) * i - Math.PI / 2;
+                const axisStart = radarRadius * 0.2;
                 legend1.append("line")
-                    .attr("x1", 0)
-                    .attr("y1", 0)
+                    .attr("x1", Math.cos(angle) * axisStart)
+                    .attr("y1", Math.sin(angle) * axisStart)
                     .attr("x2", Math.cos(angle) * radarRadius)
                     .attr("y2", Math.sin(angle) * radarRadius)
-                    .attr("stroke", "#aaa")
+                    .attr("stroke", "#fff")
                     .attr("stroke-width", 1)
-                    .attr("opacity", 0.7);
+                    .attr("opacity", 0.6);
                 legend1.append("text")
                     .attr("x", Math.cos(angle) * (radarRadius + 28))
                     .attr("y", Math.sin(angle) * (radarRadius + 28) + 7)
