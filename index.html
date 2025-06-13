@@ -46,7 +46,8 @@
             { name: "Danceability", min: 10, max: 100 },
             { name: "Loudness (dB)", min: -28, max: 0 },
         ];
-        const WIDTH = window.innerWidth, HEIGHT = window.innerHeight;
+        const WIDTH = 1728, HEIGHT = 931;
+        console.log("Viewport size:", WIDTH, HEIGHT);
         const MARGIN = { top: 250, right: 500, bottom: 140, left: 0 };
         const NEON = "#00ffff";
         const LEGEND_RADIUS = 90;
@@ -609,7 +610,21 @@
                 .attr("opacity", 0.6)
                 .text("# of records in top 100");
         }
-
+        function addImage(svg, x, y, size = 60, rotation = 0, mirror = false) {
+            // Compose the transform string: rotate, then (optionally) mirror
+            let transform = `rotate(${rotation},${x},${y})`;
+            if (mirror) {
+                // Mirror horizontally about the image center
+                transform += ` translate(${x * 2},0) scale(-1,1)`;
+            }
+            return svg.append("image")
+                .attr("xlink:href", "needle.png")
+                .attr("width", size)
+                .attr("height", size)
+                .attr("x", x - size / 2)
+                .attr("y", y - size / 2)
+                .attr("transform", transform);
+        }
         // ---- MAIN ----
         d3.csv("Spotify-2000-updated.csv").then(function (data) {
             // --- Data prep
@@ -637,6 +652,7 @@
             drawLegend(svg);
             drawCentralAxis(svg);
             drawGenreBubbles(svg, circles, color);
+            addImage(svg, 1530, 430, 500, 210, true);
 
             // Mount to page
             document.body.prepend(svg.node());
