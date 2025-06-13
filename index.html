@@ -4,34 +4,23 @@
 <head>
     <meta charset="UTF-8">
     <title>Genre Circles Visualization</title>
+
     <style>
-        html,
+        #vis-container {
+            /* Optional: Center the SVG on the page */
+            margin: 0;
+            width: 1728px;
+            /* Match your svg width */
+            height: 931px;
+            /* Match your svg height */
+            background: #fff;
+        }
+
         body {
             margin: 0;
-            padding: 0;
-            width: 100vw;
-            height: 100vh;
-            overflow: hidden;
-            background: #111;
-        }
-
-        svg#bg-svg {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            z-index: 0;
-            display: block;
-            pointer-events: auto;
-        }
-
-        #vis-container {
-            position: relative;
-            z-index: 1;
-            color: #fff;
         }
     </style>
+
 </head>
 
 <body>
@@ -655,7 +644,7 @@
             addImage(svg, 1530, 430, 500, 210, true);
 
             // Mount to page
-            document.body.prepend(svg.node());
+            document.getElementById("vis-container").appendChild(svg.node());
         });
 
     </script>
